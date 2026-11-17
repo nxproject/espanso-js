@@ -87,6 +87,7 @@ The auto-loader lets a page use espanso-js **without calling it**. The page adds
 - It only attaches to the document its own script tag belongs to. Each frame that wants expansion includes its own tag.
 - The auto-loader bundle has no YAML parser and no markdown renderer. A `markdown` replacement is inserted as its plain source text.
 - Nothing is logged to the console unless the script tag has a `data-debug` attribute.
+- **When a snippet fails to render** (e.g. a malformed `dom` selector), the field is left exactly as typed and an `espanso:error` with `kind: 'render'` is dispatched. Set `rendering_error_text` to a string to insert that text instead.
 
 ### DOM events
 
@@ -116,6 +117,7 @@ These keys are specific to espanso-js. They work in `default.yml`, in the auto-l
 | `rich_text` | `true` | When `false`, `html` and `markdown` replacements are inserted as plain text, and `image_path` matches are dropped at load (config error). No HTML or image ever reaches the page. |
 | `regex` | `true` | When `false`, `regex` matches are dropped at load (config error) |
 | `disabled_var_types` | `[]` | A match that uses one of these variable types fails with a render error, and the field is left untouched: the trigger stays, and no error text is inserted. |
+| `rendering_error_text` | espanso's message (`createEspanso`), `null` (auto-loader) | What replaces the trigger when rendering fails. A string is inserted as a literal (never rendered, never treated as HTML). `null` leaves the field untouched: the trigger stays as typed. In the auto-loader, anything other than a string means `null`. |
 | `filter_url` | none | In an app-specific config: a regex matched against the page URL |
 
 ### `dom` variable
@@ -218,7 +220,7 @@ Options (all optional):
 | `clipboardProvider` | `{ getText() => Promise<string \| null> }` |
 | `matchSelector` | `{ select(matches: {id,label,triggers}[]) => Promise<id \| null> }` |
 | `dateOptions` | `{ now: () => Date, getLocale: () => string }` |
-| `renderingErrorText` | Text inserted when rendering fails (espanso's message by default; `null` inserts nothing) |
+| `renderingErrorText` | Text that replaces the trigger when rendering fails, inserted as a literal. Defaults to the `rendering_error_text` config key, then to espanso's message. `null` leaves the field untouched (the trigger stays) |
 | `onError` | `(error, kind) => void` where `kind` is `config`, `render`, `inject` or `attach` (default `console.error`) |
 
 `attach({ root, includePasswordFields, excludeSelector, richText, shouldHandle })`:
@@ -282,6 +284,6 @@ It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
 This is a **modified version** of espanso, as required by section 5(a) of the GPL:
 
 - **Original work:** [espanso](https://github.com/espanso/espanso), Copyright (C) 2019-2021 Federico Terzi and the espanso contributors, licensed GPL-3.0. Ported from commit [`80d9e353`](https://github.com/espanso/espanso/commit/80d9e353e3c0a58c77feb72671cec4a61958366f).
-- **Modifications:** translated from Rust to JavaScript by Jose E Gonzalez Jr (nxproject) on 2026-11-17. OS keyboard hooks and injection were replaced by DOM-based detection and injection. The desktop-only components listed above were removed. The `filter_url` option and the `expand` / `exec` APIs were added. Version 0.2.0 (2026-11-17) added the auto-loader, the browser-specific config keys, the `dom` variable and the DOM events. See [CHANGELOG.md](CHANGELOG.md) for the full history.
+- **Modifications:** translated from Rust to JavaScript by Jose E Gonzalez Jr (nxproject) on 2026-11-17. OS keyboard hooks and injection were replaced by DOM-based detection and injection. The desktop-only components listed above were removed. The `filter_url` option and the `expand` / `exec` APIs were added. Version 0.2.0 (2026-11-17) added the auto-loader, the browser-specific config keys, the `dom` variable and the DOM events. Version 0.2.1 (2026-11-17) leaves the field untouched when rendering fails in the auto-loader, and added `rendering_error_text`. See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 Bundled third-party dependencies: [js-yaml](https://github.com/nodeca/js-yaml) (MIT) and [marked](https://github.com/markedjs/marked) (MIT). Their notices are kept in the `dist/` bundles.

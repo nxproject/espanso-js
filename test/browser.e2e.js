@@ -186,7 +186,7 @@ async function freshIn(p, selector) {
 test('auto (data-config-url): expansion, dom variable, rich_text:false, exclusions', opts, async () => {
   const p = await openAutoPage('auto.html');
   const events = await p.evaluate(() => window.__events);
-  assert.deepEqual(events, [{ type: 'espanso:ready', detail: { matchCount: 6 } }]);
+  assert.deepEqual(events, [{ type: 'espanso:ready', detail: { matchCount: 7 } }]);
   // Nothing exposed by the library on window (only the harness' own __events)
   const globals = await p.evaluate(() => Object.keys(window).filter((k) => /espanso/i.test(k)));
   assert.deepEqual(globals, []);
@@ -242,5 +242,29 @@ test('auto (inline config): dom attribute variable and espanso:reload', opts, as
   await freshIn(p, '#input');
   await p.keyboard.type(';hi ;who');
   assert.equal(await p.$eval('#input', (el) => el.value), 'Reloaded! ;who');
+  await p.close();
+});
+
+test('auto: a render failure leaves the field untouched (rendering_error_text defaults to null)', opts, async () => {
+  const p = await openAutoPage('auto.html');
+  await freshIn(p, '#input');
+  await p.keyboard.type('Dear Ann ;broken');
+  await p.waitForFunction(() => window.__events.some((e) => e.type === 'espanso:error'));
+  assert.equal(await p.$eval('#input', (el) => el.value), 'Dear Ann ;broken');
+
+  await freshIn(p, '#editor');
+  await p.keyboard.type(';broken');
+  await p.waitForFunction(() => window.__events.filter((e) => e.type === 'espanso:error').length === 2);
+  assert.equal(await p.$eval('#editor', (el) => el.textContent), ';broken');
+
+  const errors = await p.evaluate(() => window.__events.filter((e) => e.type === 'espanso:error'));
+  assert.deepEqual(errors.map((e) => e.detail), [
+    { kind: 'render', errorName: 'DomVariableError', count: 1 },
+    { kind: 'render', errorName: 'DomVariableError', count: 2 },
+  ]);
+
+  // Still working afterwards
+  await p.keyboard.type(' ;hi');
+  assert.equal(await p.$eval('#editor', (el) => el.textContent), ';broken Hello there!');
   await p.close();
 });

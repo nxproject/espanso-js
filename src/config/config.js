@@ -44,7 +44,11 @@ const CONFIG_FIELDS = [
   'filter_url',
   // espanso-js only: declarative browser settings
   'exclude_selector', 'include_password_fields', 'rich_text', 'regex', 'disabled_var_types',
+  'rendering_error_text',
 ];
+
+// Keys for which an explicit `null` is meaningful (kept instead of dropped)
+const NULLABLE_FIELDS = new Set(['rendering_error_text']);
 
 const VALID_TOGGLE_KEYS = {
   ctrl: 'Ctrl',
@@ -79,6 +83,7 @@ export function normalizeConfig(raw) {
   const parsed = {};
   for (const field of CONFIG_FIELDS) {
     if (raw[field] !== undefined && raw[field] !== null) parsed[field] = raw[field];
+    else if (raw[field] === null && NULLABLE_FIELDS.has(field)) parsed[field] = null;
   }
   return parsed;
 }
@@ -179,6 +184,17 @@ export class ResolvedConfig {
   get disabledVarTypes() {
     const types = this.parsed.disabled_var_types;
     return Array.isArray(types) ? types.map(String) : [];
+  }
+
+  /**
+   * Text that replaces the trigger when rendering fails: a string (inserted as a
+   * literal), `null` (leave the field untouched), or `undefined` when the key is
+   * absent or invalid (the caller's default applies).
+   */
+  get renderingErrorText() {
+    if (!Object.prototype.hasOwnProperty.call(this.parsed, 'rendering_error_text')) return undefined;
+    const value = this.parsed.rendering_error_text;
+    return value === null || typeof value === 'string' ? value : undefined;
   }
 
   get showNotifications() { return this.parsed.show_notifications ?? true; }

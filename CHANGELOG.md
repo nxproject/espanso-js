@@ -2,6 +2,22 @@
 
 All notable changes to espanso-js. The project follows [semantic versioning](https://semver.org/).
 
+## [0.2.1] - 2026-11-17
+
+### Changed
+
+- **Auto-loader: a render failure now leaves the field untouched.** The queued deletion of the trigger is dropped and nothing is inserted, so the field stays exactly as typed. `espanso:error` `{ kind: 'render', errorName, count }` is still dispatched. Aborted renders stay silent. Before, the trigger was replaced by espanso's "[Espanso]: An error occurred during rendering…" message.
+- `renderingErrorText: null` (or `rendering_error_text: null`) now also keeps the typed trigger. Before, the trigger was deleted and nothing was inserted.
+
+### Added
+
+- `rendering_error_text` config key (string or `null`): what replaces the trigger when rendering fails, inserted as a literal (never rendered, never treated as HTML).
+  - Order of precedence: the `renderingErrorText` option, then this key, then espanso's message.
+  - `createEspanso` keeps espanso's message by default.
+  - The auto-loader defaults to `null`, and treats any non-string value as `null`.
+  - A value of the wrong type is reported as a config error (`ConfigValueError`).
+- jsdom and browser tests for render failures; `demo/auto.html` has a deliberately broken `;broken` snippet.
+
 ## [0.2.0] - 2026-11-17
 
 ### Added
@@ -36,5 +52,6 @@ All notable changes to espanso-js. The project follows [semantic versioning](htt
 
 - First release: a JavaScript port of espanso (commit `80d9e353`) for the browser. It covers config/match loading, the rolling and regex matchers, the renderer and its extensions, the engine pipeline, and DOM detection and injection.
 
+[0.2.1]: https://github.com/nxproject/espanso-js/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nxproject/espanso-js/compare/6394b30...v0.2.0
 [0.1.0]: https://github.com/nxproject/espanso-js/commit/6394b30

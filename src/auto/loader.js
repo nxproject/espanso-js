@@ -148,6 +148,9 @@ export function startAutoLoader({ script, document: doc, fetch: fetchImpl }) {
       getAppInfo: () => ({ title: doc.title, url: doc.URL }),
       getDocument: () => doc,
       onError: (error, kind) => reportError(kind, error),
+      // A render failure leaves the field untouched unless the config gives a valid
+      // string. Never fall back to espanso's message here (absent, null or invalid → null).
+      renderingErrorText: typeof json.config?.rendering_error_text === 'string' ? json.config.rendering_error_text : null,
     });
     for (const e of errors) reportError('config', e.error);
     return engine;

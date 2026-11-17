@@ -30,6 +30,11 @@
       "trigger": ";paste",
       "replace": "{{c}}",
       "vars": [{ "name": "c", "type": "clipboard" }]
+    },
+    {
+      "trigger": ";broken",
+      "replace": "This never renders: {{x}}",
+      "vars": [{ "name": "x", "type": "dom", "params": { "selector": "[[[" } }]
     }
   ]
 }

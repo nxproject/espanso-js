@@ -380,7 +380,8 @@ export class RenderMiddleware {
       if (error?.name === 'RenderAbortedError') return causedBy(event.sourceId, EventType.NOOP);
       this.onError(error);
       // A disabled variable type means "don't expand": insert nothing at all
-      if (this.errorText && error?.name !== 'DisabledVariableTypeError') {
+      // The error text is a literal: it is never rendered and never treated as HTML
+      if (this.errorText != null && error?.name !== 'DisabledVariableTypeError') {
         dispatch(causedBy(event.sourceId, EventType.TextInject, { text: this.errorText, forceMode: null }));
       }
       return causedBy(event.sourceId, EventType.RenderingError, { error });

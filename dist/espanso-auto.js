@@ -1,4 +1,4 @@
-/*! espanso-js 0.2.0 — https://github.com/nxproject/espanso-js (tag v0.2.0) — port of espanso (https://github.com/espanso/espanso) — GPL-3.0-or-later */
+/*! espanso-js 0.2.1 — https://github.com/nxproject/espanso-js (tag v0.2.1) — port of espanso (https://github.com/espanso/espanso) — GPL-3.0-or-later */
 (() => {
   // src/config/vfs.js
   function normalizePath(path) {
@@ -339,8 +339,10 @@
     "include_password_fields",
     "rich_text",
     "regex",
-    "disabled_var_types"
+    "disabled_var_types",
+    "rendering_error_text"
   ];
+  var NULLABLE_FIELDS = /* @__PURE__ */ new Set(["rendering_error_text"]);
   var VALID_TOGGLE_KEYS = {
     ctrl: "Ctrl",
     alt: "Alt",
@@ -370,6 +372,7 @@
     const parsed = {};
     for (const field of CONFIG_FIELDS) {
       if (raw[field] !== void 0 && raw[field] !== null) parsed[field] = raw[field];
+      else if (raw[field] === null && NULLABLE_FIELDS.has(field)) parsed[field] = null;
     }
     return parsed;
   }
@@ -459,6 +462,16 @@
     get disabledVarTypes() {
       const types = this.parsed.disabled_var_types;
       return Array.isArray(types) ? types.map(String) : [];
+    }
+    /**
+     * Text that replaces the trigger when rendering fails: a string (inserted as a
+     * literal), `null` (leave the field untouched), or `undefined` when the key is
+     * absent or invalid (the caller's default applies).
+     */
+    get renderingErrorText() {
+      if (!Object.prototype.hasOwnProperty.call(this.parsed, "rendering_error_text")) return void 0;
+      const value = this.parsed.rendering_error_text;
+      return value === null || typeof value === "string" ? value : void 0;
     }
     get showNotifications() {
       return this.parsed.show_notifications ?? true;
@@ -2479,7 +2492,7 @@ ${FORM_SYNTAX_TIP}`;
       } catch (error) {
         if (error?.name === "RenderAbortedError") return causedBy(event.sourceId, EventType.NOOP);
         this.onError(error);
-        if (this.errorText && error?.name !== "DisabledVariableTypeError") {
+        if (this.errorText != null && error?.name !== "DisabledVariableTypeError") {
           dispatch(causedBy(event.sourceId, EventType.TextInject, { text: this.errorText, forceMode: null }));
         }
         return causedBy(event.sourceId, EventType.RenderingError, { error });
@@ -2681,7 +2694,10 @@ ${FORM_SYNTAX_TIP}`;
      * @param {object} [options.clipboardProvider]  { getText() }
      * @param {object} [options.matchSelector]  { select(matches, isSearch) } when several matches apply
      * @param {object} [options.dateOptions]  { now, getLocale }
-     * @param {string|null} [options.renderingErrorText]  text injected on error (null = nothing)
+     * @param {string|null} [options.renderingErrorText]  text that replaces the trigger when
+     *        rendering fails, inserted as a literal. `null` leaves the field untouched (the
+     *        trigger stays). Defaults to the `rendering_error_text` config key, then to
+     *        espanso's message.
      * @param {string} [options.configDir]  substituted for $CONFIG in image paths
      * @param {(error: Error, kind: string) => void} [options.onError]
      *        kind is 'config' | 'render' | 'inject' | 'attach'; errors are also emitted
@@ -2698,6 +2714,8 @@ ${FORM_SYNTAX_TIP}`;
       this.documentProvider = options.getDocument ?? null;
       this.configManager = new ConfigManager(options.configStore, options.matchStore, options.getAppInfo);
       const defaultConfig = this.configManager.default();
+      const configErrorText = defaultConfig.renderingErrorText;
+      this.renderingErrorText = options.renderingErrorText !== void 0 ? options.renderingErrorText : configErrorText !== void 0 ? configErrorText : RENDERING_ERROR_TEXT;
       this.renderer = new Renderer([
         createEchoExtension(),
         createRandomExtension(),
@@ -2738,7 +2756,7 @@ ${FORM_SYNTAX_TIP}`;
         new MultiplexMiddleware(this.configManager),
         new RenderMiddleware(this.rendererAdapter, {
           onError: (error) => this.reportError("render", error),
-          errorText: options.renderingErrorText
+          errorText: this.renderingErrorText
         }),
         new ImageResolverMiddleware(options.configDir ?? ""),
         new CursorHintMiddleware(),
@@ -2874,7 +2892,7 @@ ${FORM_SYNTAX_TIP}`;
     enqueue(event) {
       const run = this.queue.then(async () => {
         const produced = await this.processor.process(event);
-        const blocked = new Set(produced.filter((e) => e.type === EventType.RenderingError && e.error?.name === "DisabledVariableTypeError").map((e) => e.sourceId));
+        const blocked = new Set(produced.filter((e) => e.type === EventType.RenderingError && (this.renderingErrorText === null || e.error?.name === "DisabledVariableTypeError")).map((e) => e.sourceId));
         for (const e of produced) {
           if (blocked.has(e.sourceId) && e.type === EventType.KeySequenceInject) continue;
           await this.dispatch(e);
@@ -2917,6 +2935,12 @@ ${FORM_SYNTAX_TIP}`;
   }
 
   // src/create.js
+  var ConfigValueError = class extends Error {
+    constructor(message) {
+      super(message);
+      this.name = "ConfigValueError";
+    }
+  };
   var DisabledMatchError = class extends Error {
     constructor(message) {
       super(message);
@@ -2946,6 +2970,14 @@ ${FORM_SYNTAX_TIP}`;
       for (const config of configStore.configs()) config.matchPaths.push(inlinePath);
     }
     const defaultConfig = configStore.default();
+    const errorText = defaultConfig.parsed.rendering_error_text;
+    if (errorText !== void 0 && errorText !== null && typeof errorText !== "string") {
+      errors.push({
+        path: defaultConfig.sourcePath,
+        level: "error",
+        error: new ConfigValueError("rendering_error_text must be a string or null; ignored")
+      });
+    }
     if (!defaultConfig.regex || !defaultConfig.richText) {
       for (const [path, group] of matchStore.groups) {
         group.matches = group.matches.filter((m) => {
@@ -3597,7 +3629,10 @@ ${FORM_SYNTAX_TIP}`;
         globalVars: json.global_vars ?? [],
         getAppInfo: () => ({ title: doc.title, url: doc.URL }),
         getDocument: () => doc,
-        onError: (error, kind) => reportError(kind, error)
+        onError: (error, kind) => reportError(kind, error),
+        // A render failure leaves the field untouched unless the config gives a valid
+        // string. Never fall back to espanso's message here (absent, null or invalid → null).
+        renderingErrorText: typeof json.config?.rendering_error_text === "string" ? json.config.rendering_error_text : null
       });
       for (const e of errors) reportError("config", e.error);
       return engine;

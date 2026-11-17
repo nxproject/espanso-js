@@ -454,3 +454,137 @@ test('fallback injection fires input and change on <input>/<textarea>', async ()
   }
   espanso.detach();
 });
+
+// ---------------------------------------------------------------------------
+// Render failures (v0.2.1): untouched by default in the auto-loader
+
+const BROKEN = {
+  trigger: ';bad',
+  replace: 'value: {{v}}',
+  vars: [{ name: 'v', type: 'dom', params: { selector: '[[[' } }], // malformed selector: render error
+};
+
+test('auto: a render failure leaves the field byte-identical and fires exactly one error', async () => {
+  document.body.innerHTML = '<input id="f"><textarea id="t"></textarea>';
+  configElement({ matches: [BROKEN, ...BASIC.matches] });
+  const events = recordEvents();
+  const loader = startAutoLoader({ script: scriptWith({}), document });
+  await loader.ready;
+
+  for (const id of ['f', 't']) {
+    const el = document.getElementById(id);
+    // eslint-disable-next-line no-await-in-loop
+    await typeInto(el, 'Dear Ann ;bad');
+    const asTyped = el.value;
+    // eslint-disable-next-line no-await-in-loop
+    await flush();
+    assert.equal(asTyped, 'Dear Ann ;bad');
+    assert.equal(el.value, asTyped);
+  }
+  const errors = events.filter((e) => e.type === 'espanso:error');
+  assert.deepEqual(errors.map((e) => e.detail), [
+    { kind: 'render', errorName: 'DomVariableError', count: 1 },
+    { kind: 'render', errorName: 'DomVariableError', count: 2 },
+  ]);
+
+  // The engine keeps working afterwards
+  const input = document.getElementById('f');
+  await typeInto(input, ' ;hi');
+  assert.equal(input.value, 'Dear Ann ;bad Hello!');
+  loader.stop();
+});
+
+test('auto: rendering_error_text replaces the trigger with a literal string', async () => {
+  document.body.innerHTML = '<input id="f"><div id="ed" contenteditable="true"></div>';
+  const LITERAL = '<b>{{v}}</b> $|$ &amp;';
+  configElement({ config: { rendering_error_text: LITERAL }, matches: [BROKEN] });
+  const events = recordEvents();
+  const loader = startAutoLoader({ script: scriptWith({}), document });
+  await loader.ready;
+
+  const input = document.getElementById('f');
+  await typeInto(input, 'a ;bad');
+  assert.equal(input.value, `a ${LITERAL}`);
+
+  const ed = document.getElementById('ed');
+  await typeIntoRich(ed, ';bad');
+  assert.equal(ed.textContent, LITERAL);
+  assert.equal(ed.querySelector('b'), null);
+
+  assert.equal(events.filter((e) => e.type === 'espanso:error').length, 2);
+  loader.stop();
+});
+
+test('auto: rendering_error_text "x" inserts x; null is the same as the default', async () => {
+  document.body.innerHTML = '<input id="f">';
+  const cfg = configElement({ config: { rendering_error_text: 'x' }, matches: [BROKEN] }, 'cfg');
+  const loader = startAutoLoader({ script: scriptWith({ 'data-config': '#cfg' }), document });
+  await loader.ready;
+  const input = document.getElementById('f');
+  await typeInto(input, ';bad');
+  assert.equal(input.value, 'x');
+
+  cfg.textContent = JSON.stringify({ config: { rendering_error_text: null }, matches: [BROKEN] });
+  await loader.reload();
+  input.value = '';
+  await typeInto(input, ';bad');
+  assert.equal(input.value, ';bad');
+  loader.stop();
+});
+
+test('createEspanso: default error text unchanged; null option or config leaves the field untouched', async () => {
+  document.body.innerHTML = '<input id="f">';
+  const input = document.getElementById('f');
+  const quiet = () => {};
+
+  let espanso = createEspanso({ matches: [BROKEN], onError: quiet }).attach();
+  await typeInto(input, ';bad');
+  assert.match(input.value, /^\[Espanso\]: An error occurred during rendering/);
+  espanso.detach();
+
+  for (const options of [{ renderingErrorText: null }, { config: { rendering_error_text: null } }]) {
+    input.value = '';
+    espanso = createEspanso({ matches: [BROKEN], onError: quiet, ...options }).attach();
+    // eslint-disable-next-line no-await-in-loop
+    await typeInto(input, ';bad');
+    assert.equal(input.value, ';bad');
+    espanso.detach();
+  }
+
+  // the explicit option wins over the config key
+  input.value = '';
+  espanso = createEspanso({ matches: [BROKEN], onError: quiet, renderingErrorText: 'opt', config: { rendering_error_text: 'cfg' } }).attach();
+  await typeInto(input, ';bad');
+  assert.equal(input.value, 'opt');
+  espanso.detach();
+});
+
+test('rendering_error_text of the wrong type is a config error and is ignored', async () => {
+  document.body.innerHTML = '<input id="f">';
+  configElement({ config: { rendering_error_text: 42 }, matches: [BROKEN] });
+  const events = recordEvents();
+  const loader = startAutoLoader({ script: scriptWith({}), document });
+  await loader.ready;
+  assert.deepEqual(events[0].detail, { kind: 'config', errorName: 'ConfigValueError', count: 1 });
+  // In the auto-loader an invalid value never falls back to espanso's message
+  const input = document.getElementById('f');
+  await typeInto(input, ';bad');
+  assert.equal(input.value, ';bad');
+  loader.stop();
+});
+
+test('an aborted render stays silent', async () => {
+  document.body.innerHTML = '<input id="f">';
+  const errors = [];
+  const espanso = createEspanso({
+    matches: [{ trigger: ';c', replace: '{{c}}', vars: [{ name: 'c', type: 'choice', params: { values: ['a'] } }] }],
+    choiceSelector: { show: async () => null },
+    onError: (e, kind) => errors.push(kind),
+  }).attach();
+  const seen = [];
+  espanso.engine.on('error', (e) => seen.push(e));
+  await typeInto(document.getElementById('f'), ';c');
+  assert.deepEqual(errors, []);
+  assert.deepEqual(seen, []);
+  espanso.detach();
+});

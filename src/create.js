@@ -13,6 +13,14 @@ import { MatchStore } from './matches/store.js';
 import { convertMatchGroup } from './matches/loader.js';
 import { Engine } from './engine/engine.js';
 
+/** A config value of the wrong type (ignored, the default applies). */
+export class ConfigValueError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ConfigValueError';
+  }
+}
+
 /** A match kind that the configuration disables (regex, image). */
 export class DisabledMatchError extends Error {
   constructor(message) {
@@ -71,6 +79,14 @@ export function createEngine(options = {}) {
 
   // Match kinds disabled by the (global) default config are dropped at load
   const defaultConfig = configStore.default();
+  const errorText = defaultConfig.parsed.rendering_error_text;
+  if (errorText !== undefined && errorText !== null && typeof errorText !== 'string') {
+    errors.push({
+      path: defaultConfig.sourcePath,
+      level: 'error',
+      error: new ConfigValueError('rendering_error_text must be a string or null; ignored'),
+    });
+  }
   if (!defaultConfig.regex || !defaultConfig.richText) {
     for (const [path, group] of matchStore.groups) {
       group.matches = group.matches.filter((m) => {

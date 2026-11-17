@@ -52,6 +52,7 @@ import {
   ActionMiddleware,
   MarkdownMiddleware,
   processCursorHint,
+  RENDERING_ERROR_TEXT,
 } from './middleware.js';
 
 const TOGGLE_KEY_MAP = {
@@ -90,7 +91,10 @@ export class Engine {
    * @param {object} [options.clipboardProvider]  { getText() }
    * @param {object} [options.matchSelector]  { select(matches, isSearch) } when several matches apply
    * @param {object} [options.dateOptions]  { now, getLocale }
-   * @param {string|null} [options.renderingErrorText]  text injected on error (null = nothing)
+   * @param {string|null} [options.renderingErrorText]  text that replaces the trigger when
+   *        rendering fails, inserted as a literal. `null` leaves the field untouched (the
+   *        trigger stays). Defaults to the `rendering_error_text` config key, then to
+   *        espanso's message.
    * @param {string} [options.configDir]  substituted for $CONFIG in image paths
    * @param {(error: Error, kind: string) => void} [options.onError]
    *        kind is 'config' | 'render' | 'inject' | 'attach'; errors are also emitted
@@ -108,6 +112,12 @@ export class Engine {
 
     this.configManager = new ConfigManager(options.configStore, options.matchStore, options.getAppInfo);
     const defaultConfig = this.configManager.default();
+
+    // Explicit option, then the config key, then espanso's message
+    const configErrorText = defaultConfig.renderingErrorText;
+    this.renderingErrorText = options.renderingErrorText !== undefined
+      ? options.renderingErrorText
+      : configErrorText !== undefined ? configErrorText : RENDERING_ERROR_TEXT;
 
     // Renderer + extensions
     this.renderer = new Renderer([
@@ -156,7 +166,7 @@ export class Engine {
       new MultiplexMiddleware(this.configManager),
       new RenderMiddleware(this.rendererAdapter, {
         onError: (error) => this.reportError('render', error),
-        errorText: options.renderingErrorText,
+        errorText: this.renderingErrorText,
       }),
       new ImageResolverMiddleware(options.configDir ?? ''),
       new CursorHintMiddleware(),
@@ -302,10 +312,13 @@ export class Engine {
   enqueue(event) {
     const run = this.queue.then(async () => {
       const produced = await this.processor.process(event);
-      // A match blocked by `disabled_var_types` must leave the field untouched: the
-      // trigger deletion was queued before rendering failed, so drop it.
+      // A failed render that inserts nothing must leave the field untouched: the
+      // trigger deletion was queued before rendering failed, so drop it. This applies
+      // to every failure when renderingErrorText is null, and always to matches
+      // blocked by `disabled_var_types`.
       const blocked = new Set(produced
-        .filter((e) => e.type === EventType.RenderingError && e.error?.name === 'DisabledVariableTypeError')
+        .filter((e) => e.type === EventType.RenderingError &&
+          (this.renderingErrorText === null || e.error?.name === 'DisabledVariableTypeError'))
         .map((e) => e.sourceId));
       for (const e of produced) {
         if (blocked.has(e.sourceId) && e.type === EventType.KeySequenceInject) continue;

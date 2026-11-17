@@ -1,0 +1,111 @@
+# espanso match file used by the demo page.
+# Same syntax as desktop espanso: https://espanso.org/docs/matches/basics/
+
+global_vars:
+  - name: myname
+    type: echo
+    params:
+      echo: "Jane Doe"
+
+matches:
+  # Simple text replacement
+  - trigger: ":espanso"
+    replace: "Hi there!"
+
+  # Multiple triggers, and a multi-line replacement
+  - triggers: [":sig", ":signature"]
+    replace: |
+      Best regards,
+      {{myname}}
+
+  # Dates (chrono strftime syntax)
+  - trigger: ":date"
+    replace: "{{mydate}}"
+    vars:
+      - name: mydate
+        type: date
+        params:
+          format: "%A, %-d %B %Y"
+
+  - trigger: ":time"
+    replace: "{{now}}"
+    vars:
+      - name: now
+        type: date
+        params:
+          format: "%H:%M"
+
+  - trigger: ":tomorrow"
+    replace: "{{t}}"
+    vars:
+      - name: t
+        type: date
+        params:
+          format: "%Y-%m-%d"
+          offset: 86400
+
+  - trigger: ":tokyo"
+    replace: "Tokyo: {{t}}"
+    vars:
+      - name: t
+        type: date
+        params:
+          format: "%H:%M %Z"
+          tz: "Asia/Tokyo"
+
+  # Cursor hint: the caret is placed where $|$ is
+  - trigger: ":div"
+    replace: "<div>$|$</div>"
+
+  # Word trigger + case propagation: "alh", "Alh", "ALH" followed by a separator
+  - trigger: "alh"
+    replace: "although"
+    propagate_case: true
+    word: true
+
+  # Regex trigger with a named group
+  - regex: ":hello\\((?P<person>.*?)\\)"
+    replace: "Hello {{person}}, nice to meet you!"
+
+  # Random output
+  - trigger: ":quote"
+    replace: "{{q}}"
+    vars:
+      - name: q
+        type: random
+        params:
+          choices:
+            - "Simplicity is prerequisite for reliability."
+            - "Talk is cheap. Show me the code."
+            - "Premature optimization is the root of all evil."
+
+  # Nested match
+  - trigger: ":intro"
+    replace: "{{greeting}} I'm {{myname}}."
+    vars:
+      - name: greeting
+        type: match
+        params:
+          trigger: ":espanso"
+
+  # Rich text (formatted in contenteditable editors, plain text elsewhere)
+  - trigger: ":bold"
+    markdown: "This is **bold** and _italic_"
+
+  - trigger: ":link"
+    html: '<a href="https://espanso.org">espanso</a>'
+
+  # Choice and form (no GUI: first choice / default values are used)
+  - trigger: ":color"
+    replace: "{{c}}"
+    vars:
+      - name: c
+        type: choice
+        params:
+          values: [red, green, blue]
+
+  - trigger: ":greet"
+    form: "Hey [[name]], welcome!"
+    form_fields:
+      name:
+        default: "friend"

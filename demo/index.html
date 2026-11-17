@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>espanso-js demo</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; color: #1f2328; }
+    h1 { margin-bottom: 0; }
+    .sub { color: #59636e; margin-top: .25rem; }
+    label { display: block; font-weight: 600; margin: 1.25rem 0 .35rem; }
+    input, textarea, [contenteditable] {
+      width: 100%; box-sizing: border-box; font: inherit; padding: .5rem .65rem;
+      border: 1px solid #d1d9e0; border-radius: 6px; background: #fff;
+    }
+    textarea { min-height: 7rem; }
+    [contenteditable] { min-height: 5rem; }
+    .row { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
+    button { font: inherit; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #d1d9e0; background: #f6f8fa; cursor: pointer; }
+    #status { font-weight: 600; }
+    table { border-collapse: collapse; width: 100%; margin-top: .5rem; font-size: 14px; }
+    td, th { text-align: left; border-bottom: 1px solid #eef1f4; padding: .3rem .4rem; vertical-align: top; }
+    td:last-child { white-space: pre-wrap; }
+    code { background: #f6f8fa; padding: 0 .25rem; border-radius: 4px; }
+    #errors { color: #d1242f; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>espanso-js</h1>
+  <p class="sub">The espanso text expander, running in the page. Type a trigger in any field below.</p>
+
+  <label for="input">&lt;input&gt;</label>
+  <input id="input" placeholder="Try :espanso, :date, :hello(Ana), alh ...">
+
+  <label for="textarea">&lt;textarea&gt;</label>
+  <textarea id="textarea" placeholder="Try :sig, :div, :quote ..."></textarea>
+
+  <label for="editor">contenteditable (rich text: try :bold, :link)</label>
+  <div id="editor" contenteditable="true"></div>
+
+  <div class="row">
+    <button id="toggle" type="button">Disable</button>
+    <span id="status">enabled</span>
+    <span class="sub">Double-tap <kbd>Alt</kbd> to toggle. Backspace right after an expansion undoes it.</span>
+  </div>
+
+  <div id="errors"></div>
+
+  <h2>Matches loaded from <a href="base.yml">base.yml</a></h2>
+  <table id="matches"><thead><tr><th>Trigger</th><th>Replacement</th></tr></thead><tbody></tbody></table>
+
+  <script type="module">
+    import { createEspanso, fetchFiles } from '../dist/espanso.esm.js';
+
+    const files = await fetchFiles({ 'match/base.yml': './base.yml' });
+    files['config/default.yml'] = 'toggle_key: ALT\n';
+
+    const espanso = createEspanso({ files, onError: (e) => console.error(e) });
+    window.espanso = espanso; // handy for poking around in the console
+    espanso.attach();
+
+    if (espanso.errors.length) {
+      document.getElementById('errors').textContent =
+        espanso.errors.map((e) => `${e.path}: ${e.error.message}`).join('\n');
+    }
+
+    const status = document.getElementById('status');
+    const toggle = document.getElementById('toggle');
+    const render = () => {
+      status.textContent = espanso.engine.enabled ? 'enabled' : 'disabled';
+      toggle.textContent = espanso.engine.enabled ? 'Disable' : 'Enable';
+    };
+    espanso.on('enabled', render);
+    espanso.on('disabled', render);
+    toggle.addEventListener('click', () => espanso.toggle());
+
+    const tbody = document.querySelector('#matches tbody');
+    for (const m of espanso.engine.activeMatches()) {
+      const tr = document.createElement('tr');
+      const cause = m.cause.type === 'trigger' ? m.cause.triggers.join(', ') : `regex: ${m.cause.regex}`;
+      const effect = m.effect.type === 'text' ? m.effect.replace : m.effect.path;
+      tr.innerHTML = '<td><code></code></td><td></td>';
+      tr.querySelector('code').textContent = cause;
+      tr.lastChild.textContent = effect;
+      tbody.appendChild(tr);
+    }
+    document.body.dataset.ready = 'true';
+  </script>
+</body>
+</html>

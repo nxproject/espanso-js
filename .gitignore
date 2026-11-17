@@ -1,0 +1,4 @@
+node_modules/
+.claude-session
+*.log
+.DS_Store

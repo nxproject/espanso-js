@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>espanso-js auto-loader demo</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; color: #1f2328; }
+    .sub { color: #59636e; }
+    label { display: block; font-weight: 600; margin: 1.25rem 0 .35rem; }
+    input, textarea, [contenteditable] {
+      width: 100%; box-sizing: border-box; font: inherit; padding: .5rem .65rem;
+      border: 1px solid #d1d9e0; border-radius: 6px; background: #fff;
+    }
+    textarea { min-height: 6rem; }
+    [contenteditable] { min-height: 4rem; }
+    code { background: #f6f8fa; padding: 0 .25rem; border-radius: 4px; }
+    #log { font: 13px/1.4 ui-monospace, monospace; background: #f6f8fa; padding: .5rem; border-radius: 6px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>espanso-js auto-loader</h1>
+  <p class="sub">
+    This page never calls the library. It adds one <code>&lt;script&gt;</code> tag, serves its snippets as JSON
+    (<a href="auto-config.json">auto-config.json</a>), publishes page data for the <code>dom</code> variable,
+    and listens to <code>espanso:*</code> DOM events. Try <code>;hi</code>, <code>;sig</code>, <code>;ref</code>,
+    <code>;today</code>, <code>;bold</code> (rich text is off, so it arrives as plain text) and <code>;paste</code>
+    (clipboard is disabled, so nothing happens).
+  </p>
+
+  <!-- Page data read by the `dom` variable -->
+  <script type="application/json" id="page-context">{ "order": { "ref": "AB-1042", "due": "2026-12-01" } }</script>
+
+  <label for="input">&lt;input&gt;</label>
+  <input id="input">
+
+  <label for="textarea">&lt;textarea&gt;</label>
+  <textarea id="textarea"></textarea>
+
+  <label for="editor">contenteditable</label>
+  <div id="editor" contenteditable="true"></div>
+
+  <label for="excluded">Excluded field (<code>exclude_selector: ".no-expand"</code>)</label>
+  <div class="no-expand"><input id="excluded"></div>
+
+  <p><button id="reload" type="button">Dispatch espanso:reload</button></p>
+  <div id="log"></div>
+
+  <script>
+    // Host side: only listens to / dispatches DOM events.
+    const log = document.getElementById('log');
+    for (const type of ['espanso:ready', 'espanso:error']) {
+      document.addEventListener(type, (e) => { log.textContent += `${type} ${JSON.stringify(e.detail)}\n`; });
+    }
+    document.getElementById('reload').addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('espanso:reload'));
+    });
+  </script>
+  <script src="../dist/espanso-auto.min.js" data-config-url="auto-config.json" defer></script>
+</body>
+</html>

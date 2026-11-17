@@ -31,6 +31,7 @@ import {
   createUnsupportedExtension,
 } from '../render/extensions/basic.js';
 import { createDateExtension } from '../render/extensions/date.js';
+import { createDomExtension } from '../render/extensions/dom.js';
 import { matchDescription } from '../matches/loader.js';
 import { EventType, Status, causedBy } from './events.js';
 import { Processor } from './processor.js';
@@ -91,7 +92,10 @@ export class Engine {
    * @param {object} [options.dateOptions]  { now, getLocale }
    * @param {string|null} [options.renderingErrorText]  text injected on error (null = nothing)
    * @param {string} [options.configDir]  substituted for $CONFIG in image paths
-   * @param {(error: Error) => void} [options.onError]
+   * @param {(error: Error, kind: string) => void} [options.onError]
+   *        kind is 'config' | 'render' | 'inject' | 'attach'; errors are also emitted
+   *        as an `error` event with `{ kind, error }`
+   * @param {() => Document|null} [options.getDocument]  document read by `dom` variables
    */
   constructor(options) {
     this.options = options;
@@ -100,8 +104,10 @@ export class Engine {
     this.queue = Promise.resolve();
     this.lastSourceId = 0;
     this.onError = options.onError ?? ((error) => console.error('[espanso]', error));
+    this.documentProvider = options.getDocument ?? null;
 
     this.configManager = new ConfigManager(options.configStore, options.matchStore, options.getAppInfo);
+    const defaultConfig = this.configManager.default();
 
     // Renderer + extensions
     this.renderer = new Renderer([
@@ -113,19 +119,19 @@ export class Engine {
       createClipboardExtension(options.clipboardProvider),
       createUnsupportedExtension('shell'),
       createUnsupportedExtension('script'),
+      createDomExtension({ getDocument: () => this.getDocument() }),
       ...(options.extensions ?? []),
-    ]);
-    this.renderer.logger = { error: (msg) => this.onError(new Error(msg)) };
+    ], { disabledTypes: defaultConfig.disabledVarTypes });
+    this.renderer.logger = { error: (msg) => this.reportError('render', new Error(msg)) };
     this.rendererAdapter = new RendererAdapter(this.configManager, this.renderer);
 
     // Matchers
-    const defaultConfig = this.configManager.default();
     const { rolling, regex } = convertMatches(this.configManager.allMatches);
     this.matchers = [
       new RollingMatcher(rolling, { charWordSeparators: defaultConfig.wordSeparators }),
       new RegexMatcher(regex, {
         maxBufferSize: defaultConfig.maxRegexBufferSize,
-        onError: (error) => this.onError(error),
+        onError: (error) => this.reportError('config', error),
       }),
     ];
 
@@ -149,13 +155,15 @@ export class Engine {
       new CauseCompensateMiddleware(),
       new MultiplexMiddleware(this.configManager),
       new RenderMiddleware(this.rendererAdapter, {
-        onError: (error) => this.onError(error),
+        onError: (error) => this.reportError('render', error),
         errorText: options.renderingErrorText,
       }),
       new ImageResolverMiddleware(options.configDir ?? ''),
       new CursorHintMiddleware(),
       new UndoMiddleware(() => this.configManager.default().undoBackspace),
-      new ActionMiddleware(this.configManager, sequence),
+      new ActionMiddleware(this.configManager, sequence, {
+        isRichTextEnabled: () => this.configManager.default().richText,
+      }),
       new MarkdownMiddleware(),
     ]);
   }
@@ -176,6 +184,21 @@ export class Engine {
         return selector.select(matches, isSearch);
       },
     };
+  }
+
+  /** The document `dom` variables read from (set by the DOM layer when attached). */
+  getDocument() {
+    return this.documentProvider?.() ?? (typeof document !== 'undefined' ? document : null);
+  }
+
+  /** Report an error of the given kind ('config' | 'render' | 'inject' | 'attach'). */
+  reportError(kind, error) {
+    try {
+      this.onError(error, kind);
+    } catch {
+      // never let a reporting hook break the engine
+    }
+    this.emit('error', { kind, error });
   }
 
   nextSourceId() {
@@ -271,7 +294,7 @@ export class Engine {
       try {
         listener(event);
       } catch (error) {
-        this.onError(error);
+        try { this.onError(error, 'listener'); } catch { /* ignore */ }
       }
     }
   }
@@ -279,11 +302,19 @@ export class Engine {
   enqueue(event) {
     const run = this.queue.then(async () => {
       const produced = await this.processor.process(event);
-      for (const e of produced) await this.dispatch(e);
+      // A match blocked by `disabled_var_types` must leave the field untouched: the
+      // trigger deletion was queued before rendering failed, so drop it.
+      const blocked = new Set(produced
+        .filter((e) => e.type === EventType.RenderingError && e.error?.name === 'DisabledVariableTypeError')
+        .map((e) => e.sourceId));
+      for (const e of produced) {
+        if (blocked.has(e.sourceId) && e.type === EventType.KeySequenceInject) continue;
+        await this.dispatch(e);
+      }
       return produced;
     });
     // Keep the chain alive even if something throws
-    this.queue = run.catch((error) => this.onError(error));
+    this.queue = run.catch((error) => this.reportError('render', error));
     return run;
   }
 
@@ -306,7 +337,7 @@ export class Engine {
           break;
       }
     } catch (error) {
-      this.onError(error);
+      this.reportError('inject', error);
     }
     this.emit(event.type, event);
     this.emit('*', event);

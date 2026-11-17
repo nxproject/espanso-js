@@ -33,6 +33,15 @@ export class RenderAbortedError extends Error {
   }
 }
 
+/** Thrown when a match uses a variable type listed in `disabled_var_types`. */
+export class DisabledVariableTypeError extends Error {
+  constructor(type) {
+    super(`variable type '${type}' is disabled`);
+    this.name = 'DisabledVariableTypeError';
+    this.variableType = type;
+  }
+}
+
 export const CasingStyle = Object.freeze({
   None: 'none',
   Capitalize: 'capitalize',
@@ -51,10 +60,14 @@ function capitalizeFirst(text) {
 }
 
 export class Renderer {
-  /** @param {Array<{name: string, calculate: Function}>} extensions */
-  constructor(extensions = []) {
+  /**
+   * @param {Array<{name: string, calculate: Function}>} extensions
+   * @param {{disabledTypes?: Iterable<string>}} [options]
+   */
+  constructor(extensions = [], options = {}) {
     this.extensions = new Map();
     for (const ext of extensions) this.extensions.set(ext.name, ext);
+    this.disabledTypes = new Set(options.disabledTypes ?? []);
     this.logger = console;
   }
 
@@ -76,6 +89,10 @@ export class Renderer {
       VAR_REGEX.lastIndex = 0;
 
       // Convert "global" variable type aliases when needed
+      for (const variable of template.vars) {
+        if (this.disabledTypes.has(variable.type)) throw new DisabledVariableTypeError(variable.type);
+      }
+
       let localVariables = template.vars;
       if (template.vars.some((v) => v.type === 'global')) {
         const globals = new Map(context.globalVars.map((v) => [v.name, v]));
@@ -90,6 +107,9 @@ export class Renderer {
       // Compute the variable outputs
       const scope = new Map();
       for (const variable of variables) {
+        if (this.disabledTypes.has(variable.type)) {
+          throw new DisabledVariableTypeError(variable.type);
+        }
         if (variable.type === 'match') {
           const subTemplate = getMatchingTemplate(variable, context.templates);
           if (!subTemplate) {

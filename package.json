@@ -1,6 +1,6 @@
 {
   "name": "espanso-js",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A JavaScript port of the espanso text expander that runs in the browser",
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -18,7 +18,8 @@
     "src",
     "dist",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "node scripts/build.js",

@@ -42,6 +42,8 @@ const CONFIG_FIELDS = [
   'filter_exec', 'filter_os', 'stats',
   // espanso-js only: match the page URL (location.href) in app-specific configs
   'filter_url',
+  // espanso-js only: declarative browser settings
+  'exclude_selector', 'include_password_fields', 'rich_text', 'regex', 'disabled_var_types',
 ];
 
 const VALID_TOGGLE_KEYS = {
@@ -65,7 +67,15 @@ const VALID_TOGGLE_KEYS = {
 
 /** Parse the raw text of a config file into a "parsed config" (only known fields). */
 export function parseConfig(text) {
-  const raw = parseYaml(text);
+  return normalizeConfig(parseYaml(text));
+}
+
+/** Keep only the known config fields of an already parsed object (YAML or JSON). */
+export function normalizeConfig(raw) {
+  if (raw == null) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('invalid config: expected a mapping');
+  }
   const parsed = {};
   for (const field of CONFIG_FIELDS) {
     if (raw[field] !== undefined && raw[field] !== null) parsed[field] = raw[field];
@@ -151,6 +161,26 @@ export class ResolvedConfig {
     return String(trigger);
   }
 
+  /** CSS selector of fields where nothing is expanded ("" = none). */
+  get excludeSelector() {
+    const selector = this.parsed.exclude_selector;
+    return typeof selector === 'string' ? selector.trim() : '';
+  }
+
+  get includePasswordFields() { return this.parsed.include_password_fields === true; }
+
+  /** When false, html/markdown are inserted as plain text and image matches are dropped. */
+  get richText() { return this.parsed.rich_text !== false; }
+
+  /** When false, regex matches are dropped at load. */
+  get regex() { return this.parsed.regex !== false; }
+
+  /** Variable types that make a match fail to render (nothing is inserted). */
+  get disabledVarTypes() {
+    const types = this.parsed.disabled_var_types;
+    return Array.isArray(types) ? types.map(String) : [];
+  }
+
   get showNotifications() { return this.parsed.show_notifications ?? true; }
 
   get postFormDelay() { return this.parsed.post_form_delay ?? 200; }
@@ -223,14 +253,17 @@ export class ConfigStore {
    * @param {string} configDir
    * @returns {{store: ConfigStore, errors: Array<{path: string, error: Error}>}}
    */
-  static load(vfs, configDir = 'config') {
+  static load(vfs, configDir = 'config', options = {}) {
     const yml = resolvePath(configDir, 'default.yml');
     const yaml = resolvePath(configDir, 'default.yaml');
     const defaultFile = vfs.exists(yml) ? yml : vfs.exists(yaml) ? yaml : null;
 
     const errors = [];
     let defaultConfig;
-    if (defaultFile) {
+    if (options.defaultConfig != null) {
+      // A config object given directly (e.g. from JSON) replaces default.yml
+      defaultConfig = new ResolvedConfig(normalizeConfig(options.defaultConfig), `${configDir}/default.yml`, vfs.paths());
+    } else if (defaultFile) {
       defaultConfig = ResolvedConfig.load(vfs, defaultFile, null);
     } else {
       // Unlike desktop espanso, a missing default.yml is not fatal: use an empty one

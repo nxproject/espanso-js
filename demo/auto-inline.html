@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>espanso-js auto-loader demo (inline config)</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; }
+    input, [contenteditable] { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem; border: 1px solid #d1d9e0; border-radius: 6px; }
+    [contenteditable] { min-height: 4rem; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Inline configuration</h1>
+  <p>The snippets are embedded in the page as <code>application/x-espanso+json</code>. Try <code>;hi</code>, <code>;who</code> and <code>;bold</code>.</p>
+
+  <div id="who" data-name="Ana">Ana</div>
+  <input id="input">
+  <div id="editor" contenteditable="true"></div>
+
+  <script type="application/x-espanso+json" id="espanso-config">
+    {
+      "config": { "rich_text": false },
+      "matches": [
+        { "trigger": ";hi", "replace": "Hello from inline config!" },
+        { "trigger": ";who", "replace": "Name: {{n}}",
+          "vars": [{ "name": "n", "type": "dom", "params": { "selector": "#who", "attribute": "data-name" } }] },
+        { "trigger": ";bold", "html": "<b>bold</b> text" }
+      ]
+    }
+  </script>
+  <script src="../dist/espanso-auto.min.js" data-config="#espanso-config" defer></script>
+</body>
+</html>

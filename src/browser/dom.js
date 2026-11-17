@@ -17,6 +17,7 @@
  */
 
 import { nullInjector } from '../engine/engine.js';
+import { htmlToText as flattenHtml } from '../engine/html-text.js';
 
 const TEXT_INPUT_TYPES = new Set(['text', 'search', 'url', 'tel', 'email', '']);
 
@@ -110,14 +111,6 @@ function backByGraphemes(text, index, count) {
   return position <= 0 ? 0 : boundaries[position];
 }
 
-function htmlToText(html, doc) {
-  if (doc?.createElement) {
-    const container = doc.createElement('div');
-    container.innerHTML = html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h[1-6])>/gi, '$&\n');
-    return container.textContent.replace(/\n+$/, '');
-  }
-  return html.replace(/<[^>]*>/g, '');
-}
 
 function escapeAttribute(value) {
   return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -135,6 +128,8 @@ export class DomInjector {
     this.useExecCommand = options.useExecCommand ?? true;
     this.injecting = false;
     this.editableOptions = options.editableOptions ?? {};
+    // When false, HTML is always flattened to text and images are never inserted
+    this.richText = options.richText ?? true;
   }
 
   target() {
@@ -200,12 +195,13 @@ export class DomInjector {
     const el = this.target();
     if (!el) return;
     this.guard(() => {
-      if (editableKind(el, this.editableOptions) === 'contenteditable') this.insertHtml(el, html);
-      else this.insertText(el, htmlToText(html, this.doc));
+      if (this.richText && editableKind(el, this.editableOptions) === 'contenteditable') this.insertHtml(el, html);
+      else this.insertText(el, flattenHtml(html));
     });
   }
 
   injectImage(path) {
+    if (!this.richText) return;
     const el = this.target();
     if (!el || editableKind(el, this.editableOptions) !== 'contenteditable') return;
     this.guard(() => this.insertHtml(el, `<img src="${escapeAttribute(path)}">`));
@@ -237,6 +233,16 @@ export class DomInjector {
     el.dispatchEvent(event);
   }
 
+  fireChange(el) {
+    const EventCtor = this.doc?.defaultView?.Event ?? Event;
+    el.dispatchEvent(new EventCtor('change', { bubbles: true }));
+  }
+
+  /**
+   * Fallback edit of an <input>/<textarea> (when execCommand is unavailable).
+   * A programmatic edit gets no native `change` on blur, so fire it here too:
+   * pages that commit a field's value on `change` would otherwise lose the text.
+   */
   replaceRange(el, text, start, end, inputType) {
     if (typeof el.setRangeText === 'function' && el.selectionStart != null) {
       el.setRangeText(text, start, end, 'end');
@@ -244,6 +250,7 @@ export class DomInjector {
       el.value = el.value.slice(0, start) + text + el.value.slice(end);
     }
     this.fireInput(el, inputType, text || null);
+    this.fireChange(el);
   }
 
   deleteBackward(el, count) {
@@ -477,13 +484,29 @@ function keyForChar(c) {
 export function attach(engine, options = {}) {
   const root = options.root ?? document;
   const doc = root.ownerDocument ?? (root.nodeType === 9 ? root : document);
-  const editableOptions = { includePasswordFields: options.includePasswordFields ?? false };
-  const shouldHandle = options.shouldHandle ?? (() => true);
+  const config = engine.configManager?.default();
+  const reportError = (kind, error) => (engine.reportError ? engine.reportError(kind, error) : console.error(error));
+
+  const editableOptions = {
+    includePasswordFields: options.includePasswordFields ?? config?.includePasswordFields ?? false,
+  };
+  const excludeSelector = validSelector(options.excludeSelector ?? config?.excludeSelector ?? '', doc, reportError);
+  const customShouldHandle = options.shouldHandle ?? (() => true);
+  const shouldHandle = (el) => {
+    if (excludeSelector && el.closest(excludeSelector)) return false;
+    return customShouldHandle(el);
+  };
+  const richText = options.richText ?? config?.richText ?? true;
 
   let lastTarget = null;
-  const injector = options.injector ?? new DomInjector({ doc, getTarget: () => lastTarget, editableOptions });
+  const injector = options.injector ?? new DomInjector({ doc, getTarget: () => lastTarget, editableOptions, richText });
   injector.editableOptions = editableOptions;
+  injector.richText = richText;
   engine.injector = injector;
+
+  // `dom` variables read from the document of the field being typed in
+  const previousDocumentProvider = engine.documentProvider;
+  engine.documentProvider = () => (injector.target()?.ownerDocument ?? doc);
 
   const resolveField = (event) => {
     const el = editableRoot(eventTarget(event), editableOptions);
@@ -577,6 +600,15 @@ export function attach(engine, options = {}) {
     }
   };
 
+  // A failure in a handler must never break the page's own event handling
+  const safe = (fn) => (event) => {
+    try {
+      fn(event);
+    } catch (error) {
+      reportError('attach', error);
+    }
+  };
+
   const listeners = [
     ['input', onInput],
     ['compositionend', onCompositionEnd],
@@ -584,7 +616,7 @@ export function attach(engine, options = {}) {
     ['keyup', onKeyUp],
     ['mousedown', onPointerDown],
     ['focusin', onFocusIn],
-  ];
+  ].map(([type, fn]) => [type, safe(fn)]);
   for (const [type, fn] of listeners) root.addEventListener(type, fn, true);
 
   return {
@@ -592,8 +624,28 @@ export function attach(engine, options = {}) {
     detach() {
       for (const [type, fn] of listeners) root.removeEventListener(type, fn, true);
       if (engine.injector === injector) engine.injector = nullInjector;
+      engine.documentProvider = previousDocumentProvider ?? null;
     },
   };
+}
+
+/** An invalid selector is reported as a config error and ignored (never throws later). */
+export class InvalidSelectorError extends Error {
+  constructor() {
+    super('exclude_selector is not a valid CSS selector; it is ignored');
+    this.name = 'InvalidSelectorError';
+  }
+}
+
+function validSelector(selector, doc, reportError) {
+  if (typeof selector !== 'string' || selector.trim() === '') return '';
+  try {
+    doc.createDocumentFragment().querySelector(selector);
+    return selector;
+  } catch {
+    reportError('config', new InvalidSelectorError());
+    return '';
+  }
 }
 
 /** App info used to pick app-specific configs (filter_title / filter_url). */

@@ -9,6 +9,7 @@ const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.map': 'application/json',
+  '.json': 'application/json; charset=utf-8',
   '.yml': 'text/yaml; charset=utf-8',
   '.yaml': 'text/yaml; charset=utf-8',
   '.css': 'text/css; charset=utf-8',

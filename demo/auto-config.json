@@ -1,0 +1,35 @@
+{
+  "config": {
+    "backspace_limit": 5,
+    "exclude_selector": ".no-expand",
+    "rich_text": false,
+    "regex": false,
+    "disabled_var_types": ["clipboard", "shell", "script", "form", "choice"]
+  },
+  "global_vars": [
+    { "name": "myname", "type": "echo", "params": { "echo": "Jane Doe" } }
+  ],
+  "matches": [
+    { "trigger": ";sig", "replace": "Best,\n{{myname}}" },
+    { "trigger": ";hi", "replace": "Hello there!" },
+    {
+      "trigger": ";ref",
+      "replace": "Order {{ref}}, due {{due}}",
+      "vars": [
+        { "name": "ref", "type": "dom", "params": { "selector": "#page-context", "json_path": "order.ref" } },
+        { "name": "due", "type": "dom", "params": { "selector": "#page-context", "json_path": "order.due", "default": "(no date)" } }
+      ]
+    },
+    {
+      "trigger": ";today",
+      "replace": "{{d}}",
+      "vars": [{ "name": "d", "type": "date", "params": { "format": "%Y-%m-%d" } }]
+    },
+    { "trigger": ";bold", "html": "<b>bold</b> &amp; <i>italic</i>" },
+    {
+      "trigger": ";paste",
+      "replace": "{{c}}",
+      "vars": [{ "name": "c", "type": "clipboard" }]
+    }
+  ]
+}

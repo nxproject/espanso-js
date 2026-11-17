@@ -15,7 +15,8 @@
  * exit, search, notification, delay_modifiers.
  */
 
-import { marked } from 'marked';
+import { markdownToHtml } from './markdown.js';
+import { htmlToText } from './html-text.js';
 import { EventType, Key, Status, MODIFIER_KEYS, causedBy, detectedMatch } from './events.js';
 
 const graphemeSegmenter =
@@ -378,7 +379,8 @@ export class RenderMiddleware {
     } catch (error) {
       if (error?.name === 'RenderAbortedError') return causedBy(event.sourceId, EventType.NOOP);
       this.onError(error);
-      if (this.errorText) {
+      // A disabled variable type means "don't expand": insert nothing at all
+      if (this.errorText && error?.name !== 'DisabledVariableTypeError') {
         dispatch(causedBy(event.sourceId, EventType.TextInject, { text: this.errorText, forceMode: null }));
       }
       return causedBy(event.sourceId, EventType.RenderingError, { error });
@@ -479,10 +481,14 @@ export class ActionMiddleware {
   /**
    * @param {{getForceMode(matchId): string|null}} matchInfo
    * @param {{getNextId(): number}} sequence
+   * @param {{isRichTextEnabled?: () => boolean}} [options]
+   *        when rich text is disabled, html/markdown bodies are flattened to plain
+   *        text here, so no HTML ever reaches the injector
    */
-  constructor(matchInfo, sequence) {
+  constructor(matchInfo, sequence, options = {}) {
     this.matchInfo = matchInfo;
     this.sequence = sequence;
+    this.isRichTextEnabled = options.isRichTextEnabled ?? (() => true);
   }
 
   next(event, dispatch) {
@@ -493,8 +499,21 @@ export class ActionMiddleware {
         dispatch(causedBy(event.sourceId, EventType.DiscardPrevious, {
           minimumSourceId: this.sequence.getNextId(),
         }));
+        const richText = this.isRichTextEnabled();
         if (event.type === EventType.ImageResolved) {
+          // Image matches are dropped at load when rich text is off; never inject one.
+          if (!richText) return causedBy(event.sourceId, EventType.NOOP);
           return causedBy(event.sourceId, EventType.ImageInject, { imagePath: event.imagePath });
+        }
+        if (!richText && (event.format === 'html' || event.format === 'markdown')) {
+          let text = event.body;
+          if (event.format === 'html') {
+            text = htmlToText(event.body);
+          } else {
+            const html = markdownToHtml(event.body);
+            if (html !== null) text = htmlToText(html);
+          }
+          return causedBy(event.sourceId, EventType.TextInject, { text, forceMode: null });
         }
         if (event.format === 'html') return causedBy(event.sourceId, EventType.HtmlInject, { html: event.body });
         if (event.format === 'markdown') {
@@ -538,29 +557,18 @@ export class ActionMiddleware {
 }
 
 /**
- * If the snippet is a single paragraph, remove the <p> tag so it is inlined
- * (espanso issue #811).
+ * markdown.rs: convert markdown injection requests to HTML. Without a markdown
+ * renderer (slim build), the markdown source is inserted as plain text.
  */
-export function removeParagraphTagIfSingleOccurrence(html) {
-  const count = html.split('<p>').length - 1;
-  if (count > 1) return html;
-  let out = html;
-  while (out.startsWith('<p>')) out = out.slice(3);
-  while (out.endsWith('</p>')) out = out.slice(0, -4);
-  return out;
-}
-
-export function markdownToHtml(markdown) {
-  const html = marked.parse(markdown, { async: false }).trim();
-  return removeParagraphTagIfSingleOccurrence(html);
-}
-
-/** markdown.rs: convert markdown injection requests to HTML. */
 export class MarkdownMiddleware {
   name = 'markdown';
 
   next(event) {
     if (event.type !== EventType.MarkdownInject) return event;
-    return causedBy(event.sourceId, EventType.HtmlInject, { html: markdownToHtml(event.markdown) });
+    const html = markdownToHtml(event.markdown);
+    if (html === null) {
+      return causedBy(event.sourceId, EventType.TextInject, { text: event.markdown, forceMode: null });
+    }
+    return causedBy(event.sourceId, EventType.HtmlInject, { html });
   }
 }

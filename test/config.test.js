@@ -1,7 +1,9 @@
 // Ports of the espanso-config unit tests (yaml loader, match store, config resolution)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseYaml, lenientFlowQuote } from '../src/config/yaml.js';
+import '../src/config/yaml-default.js';
+import { parseYaml } from '../src/config/yaml.js';
+import { lenientFlowQuote } from '../src/config/yaml-lenient.js';
 import { convertMatch } from '../src/matches/loader.js';
 import { MatchStore } from '../src/matches/store.js';
 import { ConfigStore } from '../src/config/config.js';

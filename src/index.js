@@ -19,7 +19,7 @@ import { createEngine } from './core.js';
 import { attach as attachDom, browserAppInfo } from './browser/dom.js';
 
 export * from './core.js';
-export { attach, DomInjector, browserAppInfo, editableKind, deepActiveElement } from './browser/dom.js';
+export { attach, DomInjector, browserAppInfo, editableKind, deepActiveElement, InvalidSelectorError } from './browser/dom.js';
 
 /**
  * Create an espanso instance for the current page.
